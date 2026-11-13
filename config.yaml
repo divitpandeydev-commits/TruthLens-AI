@@ -40,13 +40,13 @@ answering:
     max_results: 5
 
   retriever:
-    type: hybrid_web
+    type: web_search
     top_k_per_doc: 2
 
   drafter:
     type: llm
     provider: groq
-    model: openai/gpt-oss-120b
+    model: openai/gpt-oss-20b
     temperature: 0.0
 
   decomposer:
@@ -60,7 +60,7 @@ answering:
     min_confidence: 0.60
     min_relevance_score: 0.35
     retriever:
-      type: hybrid_web
+      type: web_search
       top_k_per_doc: 2
     judge:
       type: llm

@@ -21,6 +21,9 @@ export interface Passage {
   source_url?: string | null
   title?: string | null
   evidence_id?: string | null
+  polarity?: 'supporting' | 'contradicting' | 'neutral' | 'irrelevant'
+  information_type?: string
+  published_date?: string | null
 }
 
 export interface Chunk {
@@ -46,6 +49,8 @@ export interface Claim {
   claim: string
   cited_source: string | null
   kind?: 'topic' | 'meta'
+  importance?: 'central' | 'secondary'
+  parent_headline?: string | null
   search_queries?: string[]
 }
 
@@ -55,15 +60,21 @@ export interface Verdict {
   verdict: VerdictLabel
   justification: string
   confidence?: number
+  evidence_strength?: number
   abstention_reason?: string | null
   supporting_sources: string[]
   contradicting_sources: string[]
+  neutral_sources?: string[]
+  irrelevant_sources?: string[]
   source_urls?: string[]
   original_cited_source: string | null
   verifier: string
   evidence: Passage[]
   supporting_evidence?: Passage[]
   contradicting_evidence?: Passage[]
+  neutral_evidence?: Passage[]
+  irrelevant_evidence?: Passage[]
+  conflicting_points?: string[]
 }
 
 export interface ArticleVerification {

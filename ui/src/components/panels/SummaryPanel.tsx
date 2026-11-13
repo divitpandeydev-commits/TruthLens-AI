@@ -81,16 +81,40 @@ export function SummaryPanel({ state, timeline }: { state: AnsweringState; timel
               <dd className="font-semibold text-ink truncate">{models.verify || 'Evidence-Aware Judge'}</dd>
             </div>
             <div>
+              <dt className="text-ink-3">Search Engine</dt>
+              <dd className="font-semibold text-ink truncate">Tavily Web Search API</dd>
+            </div>
+            <div>
               <dt className="text-ink-3">Token Usage</dt>
               <dd className="figures font-semibold text-ink">
                 {formatTokens(usage.tokens_in + usage.tokens_out)} tokens
               </dd>
             </div>
-            <div>
-              <dt className="text-ink-3">Embedder</dt>
-              <dd className="font-semibold text-ink truncate">{state.config?.embedding?.model || 'SentenceTransformers'}</dd>
-            </div>
           </dl>
+          <div className="mt-3 border-t border-rule pt-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                const reportData = {
+                  question: state.question,
+                  claims: state.claims,
+                  verdicts: verdicts.map((v) => v.verdict),
+                  summary: { total_claims: verdicts.length },
+                  timestamp: new Date().toISOString(),
+                }
+                const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `truthlens-report-${Date.now()}.json`
+                a.click()
+                URL.revokeObjectURL(url)
+              }}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-rule bg-paper px-3 py-1.5 text-xs font-semibold text-ink shadow-xs transition hover:bg-sunk hover:border-emerald-500/40"
+            >
+              Export Report (JSON)
+            </button>
+          </div>
         </Block>
       </div>
     </>

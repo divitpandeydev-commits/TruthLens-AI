@@ -42,14 +42,18 @@ Your task is to decompose a news article, claim, or text into a list of atomic, 
 Strict rules:
 1. Each claim must be a SINGLE verifiable factual assertion — no compound sentences.
    If a sentence contains multiple facts, split them into distinct atomic claims.
-2. Each claim must be completely self-contained: resolve pronouns and relative references ("they", "this company", "it")
+2. Identify the "importance" of each claim relative to the headline/topic:
+   - "central": The core, pivotal assertion of the headline (e.g. "A nuclear weapon was used in the strike"). Proving or refuting this directly confirms or debunks the headline.
+   - "secondary": Contextual, supporting, or background facts (e.g. "An explosion occurred", "Kyiv is in Ukraine").
+   At least one claim MUST be marked "central".
+3. Each claim must be completely self-contained: resolve pronouns and relative references ("they", "this company", "it")
    to the exact named entities based on the context.
-3. Ignore subjective opinions, pure rhetoric, transition words ("Furthermore", "In conclusion"), or vague commentary.
-4. For each claim, provide 1-2 targeted search queries in "search_queries" to look up supporting or refuting evidence on the web.
-5. Label each claim's "kind":
+4. Ignore subjective opinions, pure rhetoric, transition words, or vague commentary.
+5. For each claim, provide 1-2 targeted search queries in "search_queries" to look up specific supporting or refuting evidence on the web.
+6. Label each claim's "kind":
    - "topic": verifiable assertion about the real-world event, finding, person, policy, or data.
    - "meta": meta-commentary about the text itself ("The article doesn't state...", "Sources say").
-6. If the text itself quotes a specific source (e.g. "[reuters.com]", "[paper.pdf]"), include it in "cited_source". Otherwise null.
+7. If the text itself quotes a specific source, include it in "cited_source". Otherwise null.
 
 Respond ONLY with valid JSON in this exact structure:
 {
@@ -59,6 +63,7 @@ Respond ONLY with valid JSON in this exact structure:
       "claim": "Full self-contained factual assertion.",
       "cited_source": null,
       "kind": "topic",
+      "importance": "central",
       "search_queries": ["targeted search query 1", "search query 2"]
     }
   ]
@@ -68,11 +73,11 @@ Respond ONLY with valid JSON in this exact structure:
 
 def decompose_into_claims(llm: LLM, draft: Draft) -> list[Claim]:
     """Sends the draft/news to the LLM and returns validated atomic claims."""
-    # If the text is extremely short (e.g. a single direct sentence), we can still run decomposition
+    parent_q = (draft.question or draft.text).strip()
     raw_text = llm.chat(
         [
             {"role": "system", "content": DECOMPOSITION_SYSTEM_PROMPT},
-            {"role": "user", "content": f"News / Claim text to decompose:\n\n{draft.text}"},
+            {"role": "user", "content": f"Headline / Claim text to decompose:\n\n{draft.text}"},
         ],
         json_mode=True,
     )
@@ -83,50 +88,66 @@ def decompose_into_claims(llm: LLM, draft: Draft) -> list[Claim]:
         clean_json = match.group(0) if match else raw
         parsed = json.loads(clean_json)
     except Exception:
-        # Fallback to single atomic claim from the draft
         return [
             Claim(
                 id="c1",
-                claim=draft.question.strip() if draft.question else draft.text.strip(),
+                claim=parent_q,
                 cited_source=None,
                 kind="topic",
-                search_queries=[(draft.question or draft.text).strip()[:100]],
+                importance="central",
+                parent_headline=parent_q,
+                search_queries=[parent_q[:100]],
             )
         ]
 
     claims_data = parsed.get("claims") if isinstance(parsed, dict) else None
+    if claims_data is not None and isinstance(claims_data, list) and len(claims_data) == 0:
+        return []
+
     if not isinstance(claims_data, list) or not claims_data:
-        # If no claims extracted, create one from the original text
         return [
             Claim(
                 id="c1",
-                claim=draft.text.strip(),
+                claim=parent_q,
                 cited_source=None,
                 kind="topic",
-                search_queries=[draft.text.strip()[:100]],
+                importance="central",
+                parent_headline=parent_q,
+                search_queries=[parent_q[:100]],
             )
         ]
 
-    # Validate and normalize IDs
     validated: list[Claim] = []
+    has_central = False
     for idx, c in enumerate(claims_data, start=1):
         if isinstance(c, dict):
             if "id" not in c or not c["id"]:
                 c["id"] = f"c{idx}"
-            if "search_queries" not in c:
-                c["search_queries"] = [c.get("claim", "")[:100]]
+            if "search_queries" not in c or not c["search_queries"]:
+                c["search_queries"] = [c.get("claim", parent_q)[:100]]
+            if c.get("importance") not in ("central", "secondary"):
+                c["importance"] = "central" if idx == 1 else "secondary"
+            if c.get("importance") == "central":
+                has_central = True
+            c["parent_headline"] = parent_q
             try:
                 validated.append(Claim.model_validate(c))
             except ValidationError:
                 continue
 
+    # Ensure at least one claim is central
+    if validated and not has_central:
+        validated[0].importance = "central"
+
     return validated or [
         Claim(
             id="c1",
-            claim=draft.text.strip(),
+            claim=parent_q,
             cited_source=None,
             kind="topic",
-            search_queries=[draft.text.strip()[:100]],
+            importance="central",
+            parent_headline=parent_q,
+            search_queries=[parent_q[:100]],
         )
     ]
 

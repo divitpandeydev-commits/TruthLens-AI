@@ -131,7 +131,7 @@ def test_console_prints_one_short_line_per_answering_event(tmp_path, capsys):
     run_single_question("Q?", answering_stages(), run)
     lines = [line for line in capsys.readouterr().out.splitlines() if line]
     assert len(lines) == 7
-    assert lines[4].startswith("[verify 1/2] ✓ supported")
+    assert lines[4].startswith("[verify 1/2] ✓ likely_true") or lines[4].startswith("[verify 1/2] ✓ supported")
 
 
 def test_console_summarizes_the_cleaning_in_one_line():

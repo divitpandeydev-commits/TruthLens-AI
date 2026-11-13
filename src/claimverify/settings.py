@@ -91,7 +91,7 @@ class SearchSettings(_Strict):
 
 
 class RetrieverSettings(_Strict):
-    type: Literal["pgvector", "hybrid", "local", "tavily", "hybrid_web"] = "local"
+    type: Literal["pgvector", "hybrid", "local", "tavily", "hybrid_web", "web_search"] = "local"
     top_k_per_doc: PositiveInt = 2
     rerank: RerankSettings | None = None  # absent: no reranker
 

@@ -50,7 +50,15 @@ export function ClaimDetail({ claim, entry, judging }: Props) {
         </div>
 
         <div className="mt-4 rounded-lg bg-sunk/50 p-3.5">
-          <span className="text-xs font-bold uppercase tracking-wider text-ink-3">Atomic Assertion</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-ink-3">Atomic Assertion</span>
+            <span className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider",
+              claim.importance === 'central' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' : 'bg-ink-3/10 text-ink-3'
+            )}>
+              {claim.importance === 'central' ? '★ Central Assertion' : 'Secondary Context'}
+            </span>
+          </div>
           <p className="mt-1 text-base font-semibold text-ink leading-snug">{claim.claim}</p>
         </div>
 
@@ -64,19 +72,32 @@ export function ClaimDetail({ claim, entry, judging }: Props) {
             </div>
 
             {v.verdict !== 'error' && (
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <EvidenceSide
-                  title="Supporting Evidence"
-                  tone="positive"
-                  sources={v.supporting_sources}
-                  evidence={v.supporting_evidence?.length ? v.supporting_evidence : v.evidence}
-                />
-                <EvidenceSide
-                  title="Contradicting Evidence"
-                  tone="negative"
-                  sources={v.contradicting_sources}
-                  evidence={v.contradicting_evidence?.length ? v.contradicting_evidence : v.evidence}
-                />
+              <div className="mt-6 flex flex-col gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <EvidenceSide
+                    title="Supporting Evidence"
+                    tone="positive"
+                    sources={v.supporting_sources || []}
+                    evidence={v.supporting_evidence || []}
+                  />
+                  <EvidenceSide
+                    title="Contradicting Evidence"
+                    tone="negative"
+                    sources={v.contradicting_sources || []}
+                    evidence={v.contradicting_evidence || []}
+                  />
+                </div>
+
+                {((v.neutral_sources?.length || 0) > 0 || (v.irrelevant_sources?.length || 0) > 0) && (
+                  <div className="flex flex-wrap gap-4 rounded-lg bg-sunk/30 px-3.5 py-2 text-xs text-ink-3">
+                    <span>
+                      <strong>Neutral / Context:</strong> {v.neutral_sources?.length || 0} passage(s)
+                    </span>
+                    <span>
+                      <strong>Filtered (Irrelevant):</strong> {v.irrelevant_sources?.length || 0} passage(s)
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

@@ -9,6 +9,7 @@ class FakeClient:
     """Mimics openai.OpenAI().chat.completions.create and returns a fixed string."""
 
     def __init__(self, content: str, tokens_in: int = 100, tokens_out: int = 20):
+        self.api_key = "fake-api-key"
         message = SimpleNamespace(content=content)
         usage = SimpleNamespace(prompt_tokens=tokens_in, completion_tokens=tokens_out)
         response = SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)

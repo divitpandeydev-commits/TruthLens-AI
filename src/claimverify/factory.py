@@ -21,6 +21,7 @@ from claimverify.answering.retrieval import (
     RerankingRetriever,
     Retriever,
     TavilySearchRetriever,
+    WebSearchRetriever,
 )
 from claimverify.answering.verification import (
     EvidenceAwareVerifier,
@@ -61,7 +62,11 @@ RETRIEVERS = {
     "pgvector": lambda cfg, embedder, conn: PgvectorRetriever(embedder, conn, cfg.top_k_per_doc),
     "hybrid": lambda cfg, embedder, conn: HybridRetriever(embedder, conn, cfg.top_k_per_doc),
     "local": lambda cfg, embedder, conn: LocalStoreRetriever(embedder, conn, cfg.top_k_per_doc),
-    "tavily": lambda cfg, embedder, conn: TavilySearchRetriever(max_results=cfg.top_k_per_doc),
+    "tavily": lambda cfg, embedder, conn: TavilySearchRetriever(max_results=cfg.top_k_per_doc * 3),
+    "web_search": lambda cfg, embedder, conn: WebSearchRetriever(
+        TavilySearchRetriever(max_results=cfg.top_k_per_doc * 3),
+        max_results=cfg.top_k_per_doc * 3,
+    ),
     "hybrid_web": lambda cfg, embedder, conn: HybridWebRetriever(
         LocalStoreRetriever(embedder, conn, cfg.top_k_per_doc),
         TavilySearchRetriever(max_results=cfg.top_k_per_doc),

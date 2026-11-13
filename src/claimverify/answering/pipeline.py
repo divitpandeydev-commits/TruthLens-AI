@@ -45,39 +45,97 @@ from claimverify.reporting import Run
 from claimverify.settings import LLMStageSettings, Settings, add_config_argument, load_settings
 
 
-def synthesize_overall_verdict(verdicts: list) -> tuple[str, float, str]:
-    """Calculates overall article verdict, weighted confidence, and explanation."""
+def synthesize_overall_verdict(verdicts: list, claims: list | None = None) -> tuple[str, float, str]:
+    """Calculates overall article verdict, weighted confidence, and explanation,
+    prioritizing central assertions so minor true context cannot mask a false core claim.
+    """
     if not verdicts:
         return "uncertain", 0.50, "No verifiable factual claims were found in the input."
 
-    normalized = [normalize_verdict(v.verdict if hasattr(v, "verdict") else v["verdict"]) for v in verdicts]
-    confidences = [float(v.confidence if hasattr(v, "confidence") else v.get("confidence", 0.75)) for v in verdicts]
+    # Build claim lookup by claim_id
+    claim_importance: dict[str, str] = {}
+    if claims:
+        for c in claims:
+            cid = c.id if hasattr(c, "id") else c.get("id", "")
+            imp = getattr(c, "importance", "central") if hasattr(c, "importance") else c.get("importance", "central")
+            if cid:
+                claim_importance[cid] = imp
 
-    avg_conf = round(sum(confidences) / len(confidences), 2) if confidences else 0.50
+    central_verdicts = []
+    secondary_verdicts = []
 
-    false_count = normalized.count("likely_false")
-    true_count = normalized.count("likely_true")
-    uncertain_count = normalized.count("uncertain")
+    for v in verdicts:
+        cid = getattr(v, "claim_id", "") if not isinstance(v, dict) else v.get("claim_id", "")
+        imp = claim_importance.get(cid, "central")
+        raw_verdict = getattr(v, "verdict", "uncertain") if not isinstance(v, dict) else v.get("verdict", "uncertain")
+        norm_v = normalize_verdict(raw_verdict)
+        raw_conf = getattr(v, "confidence", 0.70) if not isinstance(v, dict) else v.get("confidence", 0.70)
+        conf = float(raw_conf)
+        item = {"verdict": norm_v, "confidence": conf, "raw": v}
 
-    # Mixed true + false signals → uncertain (contradictory evidence)
-    if true_count > 0 and false_count > 0:
+        if imp == "central":
+            central_verdicts.append(item)
+        else:
+            secondary_verdicts.append(item)
+
+    # If no claims were marked central, treat all as central
+    if not central_verdicts:
+        central_verdicts = secondary_verdicts
+        secondary_verdicts = []
+
+    # Weighted confidence: central claims weight 3.0, secondary weight 1.0
+    weighted_sum = sum(x["confidence"] * 3.0 for x in central_verdicts) + sum(x["confidence"] * 1.0 for x in secondary_verdicts)
+    total_weights = (len(central_verdicts) * 3.0) + (len(secondary_verdicts) * 1.0)
+    avg_conf = round(weighted_sum / total_weights, 2) if total_weights > 0 else 0.50
+
+    central_false = sum(1 for x in central_verdicts if x["verdict"] == "likely_false")
+    central_true = sum(1 for x in central_verdicts if x["verdict"] == "likely_true")
+    central_uncertain = sum(1 for x in central_verdicts if x["verdict"] == "uncertain")
+
+    secondary_false = sum(1 for x in secondary_verdicts if x["verdict"] == "likely_false")
+    secondary_true = sum(1 for x in secondary_verdicts if x["verdict"] == "likely_true")
+
+    # RULE 1: Core claim refutation dominates
+    if central_false > 0 and central_true > 0 and not claims and central_false == central_true:
         verdict = "uncertain"
         summary = (
-            f"Mixed evidence: {true_count} claim(s) supported and {false_count} claim(s) refuted. "
+            f"Mixed evidence: {central_true} claim(s) supported and {central_false} claim(s) refuted. "
             "Contradictory evidence prevents a definitive verdict."
         )
-    elif false_count > 0 and true_count == 0:
+    elif central_false > 0:
         verdict = "likely_false"
-        summary = f"The input contains {false_count} refuted/contradicted claim(s). Core statements conflict with verified evidence."
-    elif true_count > 0 and false_count == 0 and uncertain_count == 0:
-        verdict = "likely_true"
-        summary = f"All {true_count} extracted claim(s) were substantiated and supported by verified sources."
-    elif true_count > 0 and false_count == 0:
-        verdict = "likely_true"
-        summary = f"{true_count} claim(s) substantiated by evidence; remaining statements had insufficient evidence."
+        if secondary_true > 0:
+            summary = (
+                f"Core assertion is refuted by verified evidence ({central_false} central claim(s) false). "
+                f"Minor true context ({secondary_true} secondary fact(s)) does not validate the false central claim."
+            )
+        else:
+            summary = f"Core statement is refuted by verified evidence ({central_false} claim(s) contradicted)."
+
+    # RULE 2: Central assertion supported
+    elif central_true > 0 and central_false == 0 and central_uncertain == 0:
+        if secondary_false > 0:
+            verdict = "uncertain"
+            summary = (
+                f"Central assertion is substantiated by verified sources, but {secondary_false} secondary detail(s) "
+                "were contradicted, making the overall presentation misleading or contested."
+            )
+        else:
+            verdict = "likely_true"
+            summary = f"All {central_true} central assertion(s) were substantiated and supported by verified sources."
+
+    # RULE 3: Central assertion partially supported or mixed
+    elif central_true > 0 and central_uncertain > 0:
+        verdict = "uncertain"
+        summary = (
+            f"Central assertion has mixed or incomplete verification ({central_true} supported, "
+            f"{central_uncertain} uncertain). Insufficient conclusive evidence to confirm entire claim."
+        )
+
+    # RULE 4: Central assertion uncertain / inconclusive
     else:
         verdict = "uncertain"
-        summary = "Evidence is conflicting, mixed, or insufficient across extracted claims to make a definitive judgment."
+        summary = "Evidence regarding the core assertion is insufficient, inconclusive, or conflicting across verified sources."
 
     return verdict, avg_conf, summary
 
@@ -132,7 +190,7 @@ def run_single_question(query: str, stages: AnsweringStages, run: Run,
     for v in verdicts:
         counts[v.verdict] += 1
 
-    overall_verdict, overall_conf, overall_summary = synthesize_overall_verdict(verdicts)
+    overall_verdict, overall_conf, overall_summary = synthesize_overall_verdict(verdicts, claims)
 
     run.emit(QuestionFinished, question_index=question_index, verdict_counts=counts,
              seconds=t4 - t0)

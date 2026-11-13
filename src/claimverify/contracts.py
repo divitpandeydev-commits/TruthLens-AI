@@ -102,6 +102,8 @@ VERDICT_ICONS: dict[str, str] = {
     "Supported": "✓",
     "Refuted": "✗",
     "Uncertain": "?",
+    "Likely True": "✓",
+    "Likely False": "✗",
     "error": "!",
 }
 
@@ -155,6 +157,9 @@ class Passage(BaseModel):
     source_url: str | None = None
     title: str | None = None
     evidence_id: str | None = None
+    polarity: Literal["supporting", "contradicting", "neutral", "irrelevant"] = "neutral"
+    information_type: str = "direct_fact"
+    published_date: str | None = None
 
 
 class Draft(BaseModel):
@@ -168,6 +173,7 @@ class Draft(BaseModel):
 #   topic  the subject of the question/news: verified
 #   meta   this answer, its passages or its speaker: kept in the run, not verified
 ClaimKind = Literal["topic", "meta"]
+ClaimImportance = Literal["central", "secondary"]
 
 
 class SearchQuery(BaseModel):
@@ -183,6 +189,8 @@ class Claim(BaseModel):
     claim: str
     cited_source: str | None = None
     kind: ClaimKind = "topic"
+    importance: ClaimImportance = "central"
+    parent_headline: str | None = None
     search_queries: list[str] = Field(default_factory=list)
 
 
@@ -201,32 +209,52 @@ class Verdict(BaseModel):
     abstention_reason: str | None = None
     supporting_sources: list[str] = Field(default_factory=list)
     contradicting_sources: list[str] = Field(default_factory=list)
+    neutral_sources: list[str] = Field(default_factory=list)
+    irrelevant_sources: list[str] = Field(default_factory=list)
     source_urls: list[str] = Field(default_factory=list)
     original_cited_source: str | None = None
     verifier: str  # e.g. "gemini:gemini-1.5-flash", "mock_verifier", "llm_judge"
     evidence: list[Passage] = Field(default_factory=list)
     supporting_evidence: list[Passage] = Field(default_factory=list)
     contradicting_evidence: list[Passage] = Field(default_factory=list)
+    neutral_evidence: list[Passage] = Field(default_factory=list)
+    irrelevant_evidence: list[Passage] = Field(default_factory=list)
+    evidence_strength: float = 0.85
+    conflicting_points: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_and_normalize(self) -> "Verdict":
-        # Separate supporting and contradicting evidence if not already partitioned
+        # Partition evidence into supporting, contradicting, neutral, and irrelevant
         if self.evidence and not (self.supporting_evidence or self.contradicting_evidence):
-            sup_names = set(self.supporting_sources)
-            con_names = set(self.contradicting_sources)
+            sup_names = {str(s).strip().rstrip("/") for s in self.supporting_sources if s}
+            con_names = {str(s).strip().rstrip("/") for s in self.contradicting_sources if s}
+            
+            def _matches(p: Passage, names: set[str]) -> bool:
+                p_url = (p.source_url or "").strip().rstrip("/")
+                p_file = (p.filename or "").strip()
+                p_title = (p.title or "").strip()
+                for name in names:
+                    if name in (p_url, p_file) or (p_url and name in p_url) or (p_title and name.lower() in p_title.lower()):
+                        return True
+                return False
+
             sup_list = []
             con_list = []
+            neu_list = []
             for p in self.evidence:
-                if p.filename in sup_names or (p.source_url and p.source_url in sup_names):
+                if getattr(p, "polarity", "") == "supporting" or _matches(p, sup_names):
                     sup_list.append(p)
-                elif p.filename in con_names or (p.source_url and p.source_url in con_names):
+                elif getattr(p, "polarity", "") == "contradicting" or _matches(p, con_names):
                     con_list.append(p)
+                else:
+                    neu_list.append(p)
             self.supporting_evidence = sup_list
             self.contradicting_evidence = con_list
+            if not self.neutral_evidence:
+                self.neutral_evidence = neu_list
 
         norm = normalize_verdict(str(self.verdict))
         if norm == "likely_false" and not self.contradicting_sources and not self.abstention_reason:
-            # allow fallback if general refutation stated
             self.contradicting_sources = ["refuting-evidence"]
         return self
 
@@ -242,5 +270,7 @@ class ArticleVerification(BaseModel):
     verdicts: list[Verdict]
     supporting_evidence_count: int
     contradicting_evidence_count: int
+    neutral_evidence_count: int = 0
+    irrelevant_evidence_count: int = 0
     uncertain_count: int
     is_mock: bool = False

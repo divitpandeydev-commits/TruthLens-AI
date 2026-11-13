@@ -35,8 +35,16 @@ class Retriever(Protocol):
     def retrieve(self, query: str) -> list[Passage]: ...
 
 
-def deduplicate_passages(passages: list[Passage], min_length: int = 20) -> list[Passage]:
-    """Removes duplicate passages based on text content and source URL/title."""
+def normalize_url(url: str | None) -> str:
+    """Strips query tracking, fragments, and trailing slashes for clean source comparison."""
+    if not url:
+        return ""
+    clean = url.strip().split("#")[0].split("?utm_")[0].rstrip("/")
+    return clean
+
+
+def deduplicate_passages(passages: list[Passage], min_length: int = 15) -> list[Passage]:
+    """Removes duplicate passages based on text content and canonical URLs."""
     seen_texts = set()
     deduped = []
     for p in passages:
@@ -46,6 +54,11 @@ def deduplicate_passages(passages: list[Passage], min_length: int = 20) -> list[
             continue
         if clean_snippet in seen_texts:
             continue
+        norm_url = normalize_url(p.source_url)
+        if norm_url:
+            url_count = sum(1 for d in deduped if normalize_url(d.source_url) == norm_url)
+            if url_count >= 2:
+                continue
         seen_texts.add(clean_snippet)
         deduped.append(p)
     return deduped
@@ -103,8 +116,9 @@ class HybridRetriever:
 
 
 class TavilySearchRetriever:
-    """Retrieves live web evidence using the free Tavily Search API.
-    Falls back gracefully to MockSearchRetriever if TAVILY_API_KEY is not set.
+    """Retrieves live web evidence using the Tavily Search API.
+    Supports targeted multi-query search, metadata preservation, and URL canonicalization.
+    Falls back gracefully to MockSearchRetriever ONLY if TAVILY_API_KEY is not set.
     """
 
     def __init__(self, api_key: str | None = None, max_results: int = 5):
@@ -112,14 +126,14 @@ class TavilySearchRetriever:
         self.max_results = max_results
         self.fallback = MockSearchRetriever()
 
-    def retrieve(self, query: str) -> list[Passage]:
-        if not self.api_key:
-            return self.fallback.retrieve(query)
-
+    def _search_single(self, q: str) -> list[Passage]:
+        clean_q = q.strip()
+        if not clean_q:
+            return []
         url = "https://api.tavily.com/search"
         payload = {
             "api_key": self.api_key,
-            "query": query,
+            "query": clean_q,
             "search_depth": "basic",
             "include_answer": False,
             "max_results": self.max_results,
@@ -146,9 +160,39 @@ class TavilySearchRetriever:
                     source_url=r.get("url"),
                     title=r.get("title", "Web Evidence"),
                     evidence_id=f"tavily-{idx+1}",
+                    published_date=r.get("published_date"),
                 )
             )
-        return deduplicate_passages(results)
+        return results
+
+    def retrieve(self, query: str | list[str]) -> list[Passage]:
+        if not self.api_key:
+            fallback_query = query[0] if isinstance(query, list) and query else str(query)
+            return self.fallback.retrieve(fallback_query)
+
+        queries = [query] if isinstance(query, str) else query
+        all_passages: list[Passage] = []
+        # Run targeted queries (top 2 queries to remain within free tier limits and avoid latency spikes)
+        for q in queries[:2]:
+            all_passages.extend(self._search_single(q))
+
+        deduped = deduplicate_passages(all_passages)
+        deduped.sort(key=lambda p: p.score, reverse=True)
+        return deduped[: self.max_results * 2]
+
+
+class WebSearchRetriever:
+    """Primary web-search retriever for live fake news verification.
+    Guarantees pure web evidence without pollution from unrelated static corpora.
+    """
+
+    def __init__(self, tavily_retriever: TavilySearchRetriever, max_results: int = 5):
+        self.tavily = tavily_retriever
+        self.max_results = max_results
+
+    def retrieve(self, query: str | list[str]) -> list[Passage]:
+        results = self.tavily.retrieve(query)
+        return results[: self.max_results]
 
 
 class MockSearchRetriever:
