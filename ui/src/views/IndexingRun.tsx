@@ -1,0 +1,194 @@
+// An indexing run: documents -> cleaned -> chunks -> embeddings -> stored, the repairs per document,
+// and a chunk explorer per document.
+
+import { useMemo, useState } from 'react'
+import { formatRunDate, plural, shortDoc } from '@/lib/format'
+import { buildTimeline } from '@/lib/timeline'
+import type { Chunk, CleaningSummary, DocumentSummary, EventOf, PipelineEvent, RunDetail } from '@/lib/types'
+import { cn } from '@/lib/utils'
+import { RunTimeline, type Step } from '@/components/RunTimeline'
+import { PanelHeading } from '@/components/panels/common'
+
+const find = <T extends PipelineEvent['type']>(events: RunDetail['events'], type: T) =>
+  events.find((e) => e.type === type) as EventOf<T> | undefined
+
+export function IndexingRun({ detail }: { detail: RunDetail }) {
+  const events = detail.events
+  const timeline = useMemo(() => buildTimeline(events, 'indexing'), [events])
+  const started = find(events, 'run_started')
+  const loaded = find(events, 'documents_loaded')
+  const cleaned = find(events, 'documents_cleaned')
+  const built = find(events, 'chunks_built')
+  const embedded = find(events, 'chunks_embedded')
+  const stored = find(events, 'chunks_stored')
+  const chunker = (started?.config?.indexing as any)?.chunker
+  // runs recorded before the cleaning step have neither the event nor the setting
+  const hasCleaning = Boolean(cleaned || (started?.config?.indexing as any)?.cleaner)
+  const [focus, setFocus] = useState('chunk')
+
+  const chunksByDoc = useMemo(() => {
+    const map = new Map<string, Chunk[]>()
+    built?.chunks.forEach((c: Chunk) => map.set(c.filename, [...(map.get(c.filename) ?? []), c]))
+    return map
+  }, [built])
+  const docs = loaded?.documents ?? []
+  // runs chunked before token-based chunking measured their chunks in words
+  const unit = built?.chunks.some((c: Chunk) => c.tokens != null) ? 'token' : 'word'
+  const sizeOf = (c: Chunk) => c.tokens ?? c.text.split(/\s+/).length
+  const [selected, setSelected] = useState<{ file: string; index: number } | null>(null)
+  const current =
+    (selected && chunksByDoc.get(selected.file)?.find((c) => c.chunk_index === selected.index)) ?? built?.chunks[0] ?? null
+
+  const steps: Step[] = [
+    { id: 'load', label: 'Load', status: loaded ? 'done' : 'pending', figure: loaded && plural(docs.length, 'document') },
+    ...(hasCleaning
+      ? [{ id: 'clean', label: 'Clean', status: cleaned ? 'done' : 'pending', figure: cleaned && `${repaired(cleaned.documents)} repaired` } satisfies Step]
+      : []),
+    { id: 'chunk', label: 'Cut', status: built ? 'done' : 'pending', figure: built && plural(built.chunks.length, 'chunk') },
+    { id: 'embed', label: 'Embed', status: embedded ? 'done' : 'pending', figure: embedded && 'into vectors' },
+    { id: 'store', label: 'Store', status: stored ? 'done' : 'pending', figure: stored && 'in the database' },
+  ]
+
+  const overlap = chunker ? Math.floor(chunker.chunk_size * chunker.overlap_ratio) : 0
+
+  return (
+    <div className="mx-auto w-full max-w-[1760px] px-4 pt-5 pb-16 sm:px-6">
+      <header className="mb-4">
+        <h1 className="text-[clamp(1.35rem,1rem+1.1vw,2.1rem)] leading-tight font-extrabold tracking-[-0.025em]">
+          Indexing {plural(docs.length, 'document')} into {plural(built?.chunks.length ?? 0, 'chunk')}
+        </h1>
+        <p className="mt-1 text-sm text-ink-3">Indexing run · {formatRunDate(detail.summary.run_id)}</p>
+      </header>
+      
+      <div className="mb-6 border-b border-rule pb-3">
+        <RunTimeline steps={steps} timeline={timeline} reached={timeline.total} focused={focus} onFocus={setFocus} />
+      </div>
+
+      {cleaned && (
+        <section className="mb-8">
+          <PanelHeading step="2" stage="clean" title="Repairs">
+            PDF extraction artifacts fixed before cutting. No content is removed.
+          </PanelHeading>
+          <CleaningTable documents={cleaned.documents} />
+        </section>
+      )}
+
+      <PanelHeading step={hasCleaning ? '3' : '2'} stage="chunk" title="Chunks">
+        Each document is cut into pieces of about {chunker?.chunk_size ?? '?'} {unit}s, each sharing about {overlap}{' '}
+        with the next. Click one to read it.
+      </PanelHeading>
+
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <div className="flex flex-col gap-4">
+          {docs.map((d: DocumentSummary) => {
+            const chunks = chunksByDoc.get(d.filename) ?? []
+            return (
+              <section key={d.doc_id} aria-label={d.filename}>
+                <h3 className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-extrabold">{shortDoc(d.filename)}</span>
+                  <span className="text-xs text-ink-3">{plural(chunks.length, 'chunk')}</span>
+                </h3>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {chunks.map((c) => {
+                    const active = current?.chunk_id === c.chunk_id
+                    return (
+                      <button
+                        key={c.chunk_id}
+                        type="button"
+                        onClick={() => setSelected({ file: c.filename, index: c.chunk_index })}
+                        aria-pressed={active}
+                        aria-label={`${shortDoc(c.filename)} chunk ${c.chunk_index}, ${plural(sizeOf(c), unit)}`}
+                        className={cn(
+                          'figures h-8 rounded-[4px] text-[0.68rem] transition-[background-color,transform,color] duration-150 ease-out active:scale-[0.95]',
+                          active ? 'bg-ink text-sheet' : 'bg-sunk text-ink-3 hover:bg-rule hover:text-ink',
+                        )}
+                        style={{ width: `${Math.max(1.6, (sizeOf(c) / (chunker?.chunk_size ?? 512)) * 3.2)}rem` }}
+                      >
+                        {c.chunk_index}
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+        {current && (
+          <article className="rounded-lg border border-rule bg-sheet p-4 xl:sticky xl:top-16" aria-label="Selected chunk">
+            <h3 className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-lg font-extrabold">
+                {shortDoc(current.filename)} · chunk #{current.chunk_index}
+              </span>
+              <span className="figures text-xs text-ink-3">{plural(sizeOf(current), unit)}</span>
+            </h3>
+            <div className="mt-3 max-h-[60vh] overflow-y-auto pr-1">
+              <p className="text-sm leading-relaxed whitespace-pre-line text-ink-2 [overflow-wrap:anywhere]">{current.text}</p>
+            </div>
+          </article>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const repaired = (docs: CleaningSummary[]) =>
+  plural(docs.filter((d) => Object.values(d.changes).some(Boolean)).length, 'document')
+
+const RULES = [
+  { key: 'page_numbers', label: 'Page numbers removed' },
+  { key: 'nfkc', label: 'Characters normalized', hint: 'ﬁ → fi' },
+  { key: 'hyphens_joined', label: 'Split words rejoined', hint: 'rele-|vance → relevance' },
+  { key: 'hyphens_kept', label: 'Hyphen kept', hint: 'cross-|encoder → cross-encoder' },
+] as const
+
+function CleaningTable({ documents }: { documents: CleaningSummary[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-rule bg-sheet">
+      <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b border-rule text-xs text-ink-3">
+            <th scope="col" className="py-2.5 pl-4 pr-4 font-semibold">
+              Document
+            </th>
+            {RULES.map((r) => (
+              <th key={r.key} scope="col" className="py-2.5 pr-4 text-right font-semibold" title={'hint' in r ? r.hint : undefined}>
+                {r.label}
+              </th>
+            ))}
+            <th scope="col" className="py-2.5 pr-4 text-right font-semibold">
+              Characters
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {documents.map((d) => {
+            const untouched = !Object.values(d.changes).some(Boolean)
+            return (
+              <tr key={d.filename} className="border-b border-rule last:border-0">
+                <th scope="row" className="py-2.5 pl-4 pr-4 font-bold">
+                  {shortDoc(d.filename)}
+                </th>
+                {untouched ? (
+                  <td colSpan={RULES.length} className="py-2.5 pr-4 text-right text-ink-3">
+                    left as written
+                  </td>
+                ) : (
+                  RULES.map((r) => (
+                    <td key={r.key} className="figures py-2.5 pr-4 text-right">
+                      {d.changes[r.key] ?? 0}
+                    </td>
+                  ))
+                )}
+                <td className="figures py-2.5 pr-4 text-right whitespace-nowrap text-ink-3">
+                  {untouched
+                    ? d.characters_after.toLocaleString('en')
+                    : `${d.characters_before.toLocaleString('en')} → ${d.characters_after.toLocaleString('en')}`}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}

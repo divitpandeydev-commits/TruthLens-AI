@@ -1,0 +1,69 @@
+# TruthLens AI — Pipeline Configuration
+# =======================================
+# Which implementation each stage uses, and its settings.
+# Secrets (API keys, database URL) stay in .env.
+
+providers:
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+    max_retries: 4
+    max_wait_seconds: 30
+    timeout_seconds: 60
+
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    max_retries: 6
+    max_wait_seconds: 60
+    timeout_seconds: 120
+
+embedding:
+  type: local
+  model: sentence-transformers/all-MiniLM-L6-v2
+  device: cpu
+
+indexing:
+  loader:
+    type: files
+  cleaner:
+    type: minimal
+  chunker:
+    type: fixed_size
+    chunk_size: 400
+    overlap_ratio: 0.15
+
+answering:
+  search:
+    provider: tavily
+    api_key_env: TAVILY_API_KEY
+    max_results: 5
+
+  retriever:
+    type: hybrid_web
+    top_k_per_doc: 2
+
+  drafter:
+    type: llm
+    provider: groq
+    model: openai/gpt-oss-120b
+    temperature: 0.0
+
+  decomposer:
+    type: llm
+    provider: groq
+    model: openai/gpt-oss-120b
+    temperature: 0.0
+
+  verifier:
+    type: evidence_aware
+    min_confidence: 0.60
+    min_relevance_score: 0.35
+    retriever:
+      type: hybrid_web
+      top_k_per_doc: 2
+    judge:
+      type: llm
+      provider: groq
+      model: openai/gpt-oss-120b
+      temperature: 0.0

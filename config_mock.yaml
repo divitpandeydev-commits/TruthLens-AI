@@ -1,0 +1,48 @@
+# TruthLens AI — Offline / CI Mock Configuration
+# =================================================
+# All stages use mock/local implementations — zero API keys, zero network, zero ML models.
+# Use for fast unit tests and CI pipelines.
+
+providers:
+  mock:
+    type: mock
+    model: mock
+    base_url: ""
+
+embedding:
+  type: local
+  model: local-hash-embedder
+  device: cpu
+
+answering:
+  retriever:
+    type: local
+    top_k_per_doc: 2
+    top_k: 5
+
+  drafter:
+    provider: mock
+    model: mock
+    max_tokens: 512
+    temperature: 0.1
+
+  decomposer:
+    provider: mock
+    model: mock
+    max_tokens: 512
+    temperature: 0.1
+
+  verifier:
+    type: mock
+    retriever: mock
+    min_confidence: 0.0
+    min_relevance_score: 0.0
+
+indexing:
+  cleaner:
+    fix_hyphens: true
+
+  chunker:
+    type: recursive
+    chunk_size: 800
+    chunk_overlap: 100

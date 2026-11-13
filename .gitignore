@@ -1,0 +1,33 @@
+# secrets
+.env
+
+# node
+node_modules/
+ui/node_modules/
+ui/dist/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# pipeline outputs (root only: tests/fixtures/runs/ holds committed test data)
+/reports/
+/runs/
+*.draft.txt
+claims*.json
+verdicts*.json
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# design tooling scratch files
+.impeccable/questions/
+.impeccable/review/

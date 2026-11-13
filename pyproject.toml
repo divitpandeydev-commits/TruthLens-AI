@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claimverify"
+version = "0.1.0"
+description = "A RAG pipeline that decomposes its own answers into atomic claims and fact-checks each one against the full corpus."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Emir Benarbia" }]
+# Direct dependencies only. requirements.txt keeps the full pinned environment.
+dependencies = [
+    "langgraph",
+    "openai",
+    "psycopg2-binary",
+    "pydantic",
+    "pypdf",
+    "python-dotenv",
+    "pyyaml",
+    "sentence-transformers",
+]
+
+[project.optional-dependencies]
+# the web UI's server (src/claimverify/api); the UI itself is built from ui/ with npm
+ui = ["fastapi", "uvicorn[standard]"]
+# ruff is pinned: its default rule set changes between versions (see [tool.ruff])
+dev = ["pytest", "ruff==0.16.9", "fastapi", "uvicorn[standard]"]
+
+[project.scripts]
+claimverify-ingest = "claimverify.indexing.ingest:main"
+claimverify-check = "claimverify.answering.query_check:main"
+claimverify-draft = "claimverify.answering.drafting:main"
+claimverify-decompose = "claimverify.answering.decomposition:main"
+claimverify-verify = "claimverify.answering.verification:main"
+claimverify-run = "claimverify.answering.pipeline:main"
+claimverify-ui = "claimverify.api.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+# No `select`: the project follows the default rules of the pinned ruff version (788 in
+# 0.16.9), a curated subset of each family. Upgrading ruff is a deliberate change.
+line-length = 110
+src = ["src", "tests"]
