@@ -7,9 +7,9 @@ providers:
   gemini:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     api_key_env: GEMINI_API_KEY
-    max_retries: 4
-    max_wait_seconds: 30
-    timeout_seconds: 60
+    max_retries: 5
+    max_wait_seconds: 60
+    timeout_seconds: 90
 
   groq:
     base_url: https://api.groq.com/openai/v1
@@ -45,14 +45,14 @@ answering:
 
   drafter:
     type: llm
-    provider: groq
-    model: openai/gpt-oss-20b
+    provider: gemini
+    model: gemini-3.1-flash-lite
     temperature: 0.0
 
   decomposer:
     type: llm
-    provider: groq
-    model: openai/gpt-oss-120b
+    provider: gemini
+    model: gemini-3.5-flash-lite
     temperature: 0.0
 
   verifier:
@@ -64,6 +64,6 @@ answering:
       top_k_per_doc: 2
     judge:
       type: llm
-      provider: groq
-      model: openai/gpt-oss-120b
+      provider: gemini
+      model: gemini-3.5-flash-lite
       temperature: 0.0

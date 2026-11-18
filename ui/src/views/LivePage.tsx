@@ -70,7 +70,7 @@ export function LivePage() {
         {!isKeyMissing ? (
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
             <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-            LIVE MODE: Groq ({config?.models?.verify || 'openai/gpt-oss-120b'}) + Tavily Web Search
+            LIVE MODE: Gemini ({config?.models?.verify || 'gemini-3.5-flash'}) + Tavily Web Search
           </div>
         ) : (
           <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
@@ -225,7 +225,7 @@ export function LivePage() {
             <div className="flex items-center justify-between py-1 border-b border-rule">
               <span className="flex items-center gap-1.5"><Cpu className="size-3.5" /> LLM Reasoning</span>
               <span className="font-semibold text-ink">
-                {!isKeyMissing ? `Groq (${config?.models?.verify || 'openai/gpt-oss-120b'}) [Live]` : 'Offline Mock'}
+                {!isKeyMissing ? `Gemini (${config?.models?.verify || 'gemini-3.5-flash'}) [Live]` : 'Offline Mock'}
               </span>
             </div>
             <div className="flex items-center justify-between py-1 border-b border-rule">
